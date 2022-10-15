@@ -1,0 +1,168 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-hs
+  labels:
+    app: zk
+spec:
+  ports:
+    - port: 2888
+      name: server
+    - port: 3888
+      name: leader-election
+    - port: 7001
+      name: metrics-port
+  clusterIP: None
+  selector:
+    app: zk
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-cs
+  labels:
+    app: zk
+spec:
+  ports:
+    - port: 2181
+      name: client
+  selector:
+    app: zk
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: zk-pdb
+spec:
+  selector:
+    matchLabels:
+      app: zk
+  maxUnavailable: 1
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zk
+spec:
+  selector:
+    matchLabels:
+      app: zk
+  serviceName: zk-hs
+  replicas: 3
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: OrderedReady
+  template:
+    metadata:
+      labels:
+        app: zk
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - zk
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+        - name: kubernetes-zookeeper
+          imagePullPolicy: Always
+          image: "kubernetesbigdataeg/zookeeper:3.7.0-1"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "0.5"
+          ports:
+            - containerPort: 2181
+              name: client
+            - containerPort: 2888
+              name: server
+            - containerPort: 3888
+              name: leader-election
+            - containerPort: 7001
+              name: metrics-port
+          command:
+            - sh
+            - -c
+            - "start-zookeeper \
+          --servers=3"
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "zookeeper-ready 2181"
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "zookeeper-ready 2181"
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: datadir
+              mountPath: /var/lib/zookeeper
+            - mountPath: /etc/environments
+              name: zk-config-volume
+      volumes:
+        - name: zk-config-volume
+          configMap:
+            name: zk-config
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+  volumeClaimTemplates:
+    - metadata:
+        name: datadir
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: fast-disks
+        resources:
+          requests:
+            storage: 150Mi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zk-config
+data:
+  zk.env: |
+    export ZOOKEEPER__zoocfg__tickTime="2000"
+    export ZOOKEEPER__zoocfg__dataDir="/var/lib/zookeeper/data"
+    export ZOOKEEPER__zoocfg__dataLogDir="/var/lib/zookeeper/data/log"
+    export ZOOKEEPER__zoocfg__confDir="/opt/zookeeper/conf"
+    export ZOOKEEPER__zoocfg__clientPort="2181"
+    export ZOOKEEPER__zoocfg__serverPort="2888"
+    export ZOOKEEPER__zoocfg__electionPort="3888"
+    export ZOOKEEPER__zoocfg__initLimit="10"
+    export ZOOKEEPER__zoocfg__syncLimit="5"
+    export ZOOKEEPER__zoocfg__maxClientCnxns="60"
+    export ZOOKEEPER__zoocfg__purgeInterval="12"
+    export ZOOKEEPER__zoocfg__adminServerPort="8080"
+    export ZOOKEEPER__zoocfg__adminEnableServer="false"
+    export ZOOKEEPER__zoocfg__maxSessionTimeout="40000"
+    export ZOOKEEPER__zoocfg__minSessionTimeout="4000"
+    export ZOOKEEPER__zoocfg__logLevel="INFO"
+    export ZOOKEEPER__zoocfg__server_1="zk-0.zk-hs.default.svc.cluster.local:2888:3888"
+    export ZOOKEEPER__zoocfg__server_2="zk-1.zk-hs.default.svc.cluster.local:2888:3888"
+    export ZOOKEEPER__zoocfg__server_3="zk-2.zk-hs.default.svc.cluster.local:2888:3888"
+    export ZOOKEEPER__zoocfg__4lw_commands_whitelist="*"
+    export ZOOKEEPER__zoocfg__metricsProvider_className="org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider"
+    export ZOOKEEPER__zoocfg__metricsProvider_httpPort="7001"
+    export ZOOKEEPER__zoojavacfg__ZOO_LOG_DIR="/var/log/zookeeper"
+    export ZOOKEEPER__zoojavacfg__JVMFLAGS="-Xmx512M -Xms512M "
+    export ZOOKEEPER__zoolog4jcfg__zookeeper_root_logger="CONSOLE"
+    export ZOOKEEPER__zoolog4jcfg__log4j_rootLogger="\${zookeeper.root.logger}"
+    export ZOOKEEPER__zoolog4jcfg__zookeeper_console_threshold="INFO"
+    export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE="org.apache.log4j.ConsoleAppender"
+    export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE_Threshold="\${zookeeper.console.threshold}"
+    export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE_layout="org.apache.log4j.PatternLayout"
+    export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE_layout_ConversionPattern="%d{ISO8601} [myid:%X{myid}] - %-5p [%t:%C{1}@%L] - %m%n"
+
