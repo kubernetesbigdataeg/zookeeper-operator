@@ -24,7 +24,7 @@ RUN wget -q "https://archive.apache.org/dist/zookeeper/zookeeper-$ZK_VERSION/apa
     && apk del wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget https://github.com/kubernetes-big-data-eg/propgen/releases/download/release-v0.0.2/propgen \
+RUN wget https://github.com/kubernetes-big-data-eg/propgen/releases/latest/download/propgen \
     && chmod 777 propgen
 
 #Copy configuration generator script to bin
