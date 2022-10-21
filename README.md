@@ -1,8 +1,11 @@
 # zookeeper-operator
-// TODO(user): Add simple overview of use/purpose
+Apache Zookeeper Kubernetes Operator based on Operator framework SDK.
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+The ZooKeeper Operator manages ZooKeeper clusters deployed to Kubernetes 
+and automates tasks related to operating a ZooKeeper cluster. It provides 
+a full management life-cycle for ZooKeeper, including deployment, upgrades, 
+scaling, and configuration changes.
 
 ## Getting Started
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
