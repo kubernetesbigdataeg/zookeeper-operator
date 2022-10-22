@@ -40,6 +40,9 @@ spec:
         - --leader-elect
         image: controller:latest
         name: manager
+        env:
+        - name: ZOOKEEPER_IMAGE 
+          value: kubernetesbigdataeg/zookeeper:3.7.0-1
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

@@ -1,0 +1,20 @@
+# permissions for end users to view zookeepers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: zookeeper-viewer-role
+rules:
+- apiGroups:
+  - bigdata.kubernetesbigdataeg.org
+  resources:
+  - zookeepers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - bigdata.kubernetesbigdataeg.org
+  resources:
+  - zookeepers/status
+  verbs:
+  - get
