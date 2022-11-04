@@ -6,12 +6,12 @@ Maturity matrix:
 
 | Level | Funcionalitiy | Development State |
 |-------|---------------|-------------------|
-| Level 0 | Planning Stage    | <li>- [x]</li></ul> |
-| Level 1 | Basic Install     |     |
-| Level 2 | Seamless Upgrades |     |
-| Level 3 | Full Lifecycle    |     |
-| Level 4 | Deep Insights     |     |
-| Level 5 | Auto Pilot        |     |
+| Level 0 | Planning Stage    | <ul><li>- [x] done </li> |
+| Level 1 | Basic Install     | <ul><li>- [x] doing </li>    |
+| Level 2 | Seamless Upgrades | <ul><li>- [ ] done </li>    |
+| Level 3 | Full Lifecycle    | <ul><li>- [ ] done </li>    |
+| Level 4 | Deep Insights     | <ul><li>- [ ] done </li>    |
+| Level 5 | Auto Pilot        | <ul><li>- [ ] done </li>    |
 
 ## Description
 The ZooKeeper Operator manages ZooKeeper clusters deployed to Kubernetes 
