@@ -18,8 +18,9 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
-
+	goruntime "runtime"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -48,6 +49,12 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
+func printVersion() {
+	setupLog.Info(fmt.Sprintf("Go Version: %s", goruntime.Version()))
+	setupLog.Info(fmt.Sprintf("Go OS/Arch: %s/%s", goruntime.GOOS, goruntime.GOARCH))
+	setupLog.Info(fmt.Sprintf("CPUs usable number: %d", goruntime.NumCPU()))
+}
+
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
@@ -64,6 +71,8 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	printVersion()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -90,8 +99,8 @@ func main() {
 	}
 
 	if err = (&controllers.ZookeeperReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("zookeeper-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Zookeeper")
