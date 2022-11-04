@@ -2,16 +2,16 @@
 
 Apache Zookeeper Kubernetes Operator based on Operator framework SDK.
 
-Maturity matrix:
+[Maturity matrix](https://operatorframework.io/operator-capabilities/) (development state):
 
-| Level | Funcionalitiy | Development State |
+| Level | Funcionalitiy |  State |
 |-------|---------------|-------------------|
-| Level 0 | Planning Stage    | <ul><li>- [x] done </li> |
-| Level 1 | Basic Install     | <ul><li>- [x] doing </li>    |
-| Level 2 | Seamless Upgrades | <ul><li>- [ ] done </li>    |
-| Level 3 | Full Lifecycle    | <ul><li>- [ ] done </li>    |
-| Level 4 | Deep Insights     | <ul><li>- [ ] done </li>    |
-| Level 5 | Auto Pilot        | <ul><li>- [ ] done </li>    |
+| Level 0 | Planning Stage    | :heavy_check_mark: |
+| Level 1 | Basic Install     | :white_check_mark: |
+| Level 2 | Seamless Upgrades | :white_check_mark: |
+| Level 3 | Full Lifecycle    | :white_check_mark: |
+| Level 4 | Deep Insights     | :white_check_mark: |
+| Level 5 | Auto Pilot        | :white_check_mark: |
 
 ## Description
 The ZooKeeper Operator manages ZooKeeper clusters deployed to Kubernetes 
