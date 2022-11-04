@@ -1,5 +1,17 @@
-# zookeeper-operator
+# Apache Zookeeper Kubernetes Operator
+
 Apache Zookeeper Kubernetes Operator based on Operator framework SDK.
+
+Maturity matrix:
+
+| Level | Funcionalitiy | Development State |
+|-------|---------------|-------------------|
+| Level 0 | Planning Stage    | <li>- [x]</li></ul> |
+| Level 1 | Basic Install     |     |
+| Level 2 | Seamless Upgrades |     |
+| Level 3 | Full Lifecycle    |     |
+| Level 4 | Deep Insights     |     |
+| Level 5 | Auto Pilot        |     |
 
 ## Description
 The ZooKeeper Operator manages ZooKeeper clusters deployed to Kubernetes 
