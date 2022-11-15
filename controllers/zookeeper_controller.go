@@ -19,10 +19,15 @@ package controllers
 import (
 	"context"
 	"fmt"
+	v1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"strings"
 	"time"
 
+	bigdatav1alpha1 "github.com/kubernetesbigdataeg/zookeeper-operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,18 +39,15 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	bigdatav1alpha1 "github.com/kubernetesbigdataeg/zookeeper-operator/api/v1alpha1"
 )
-
-const zookeeperFinalizer = "bigdata.kubernetesbigdataeg.org/finalizer"
 
 // Definitions to manage status conditions
 const (
+	zookeeperFinalizer = "bigdata.kubernetesbigdataeg.org/finalizer"
 	// typeAvailableZookeeper represents the status of the Deployment reconciliation
 	typeAvailableZookeeper = "Available"
-	// typeDegradedZookeeper represents the status used when the custom resource is deleted and the finalizer operations are must to occur.
+	// typeDegradedZookeeper represents the status used when the custom resource
+	// is deleted and the finalizer operations are must to occur.
 	typeDegradedZookeeper = "Degraded"
 )
 
@@ -56,10 +58,15 @@ type ZookeeperReconciler struct {
 	Recorder record.EventRecorder
 }
 
-// The following markers are used to generate the rules permissions (RBAC) on config/rbac using controller-gen
-// when the command <make manifests> is executed.
+// Kubebuilder makes use of a tool called controller-gen for generating utility code
+// and Kubernetes YAML. This code and config generation is controlled by the presence
+// of special “marker comments” in Go code. Markers are single-line comments that start with
+// a plus, followed by a marker name, optionally followed by some marker specific configuration
+// The following markers are used to generate the rules permissions (RBAC) on
+// config/rbac using controller-gen when the command <make manifests> is executed.
 // To know more about markers see: https://book.kubebuilder.io/reference/markers.html
 
+// DO NOT REMOVE
 //+kubebuilder:rbac:groups=bigdata.kubernetesbigdataeg.org,resources=zookeepers,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=bigdata.kubernetesbigdataeg.org,resources=zookeepers/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=bigdata.kubernetesbigdataeg.org,resources=zookeepers/finalizers,verbs=update
@@ -67,22 +74,23 @@ type ZookeeperReconciler struct {
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
+// Reconcile is part of the main kubernetes reconciliation loop, which aims to
 // move the current state of the cluster closer to the desired state.
-
-// It is essential for the controller's reconciliation loop to be idempotent. By following the Operator
-// pattern you will create Controllers which provide a reconcile function
+// It is essential for the controller's reconciliation loop to be idempotent.
+// By following the Operator pattern you will create Controllers which provide a reconcile function
 // responsible for synchronizing resources until the desired state is reached on the cluster.
 // Breaking this recommendation goes against the design principles of controller-runtime.
 // and may lead to unforeseen consequences such as resources becoming stuck and requiring manual intervention.
 // For further info:
-// - About Operator Pattern: https://kubernetes.io/docs/concepts/extend-kubernetes/operator/
-// - About Controllers: https://kubernetes.io/docs/concepts/architecture/controller/
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
+//   - About Operator Pattern: https://kubernetes.io/docs/concepts/extend-kubernetes/operator/
+//   - About Controllers: https://kubernetes.io/docs/concepts/architecture/controller/
+//   - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
 func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	// Fetch the Zookeeper instance
+	//
+	// 1. Control-loop: checking if Zookeeper CR exists
+	//
 	// The purpose is check if the Custom Resource for the Kind Zookeeper
 	// is applied on the cluster if not we return nil to stop the reconciliation
 	zookeeper := &bigdatav1alpha1.Zookeeper{}
@@ -91,7 +99,7 @@ func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if apierrors.IsNotFound(err) {
 			// If the custom resource is not found then, it usually means that it was deleted or not created
 			// In this way, we will stop the reconciliation
-			log.Info("zookeeper resource not found. Ignoring since object must be deleted")
+			log.Info("zookeeper resource (CR) not found. Ignoring since object must be deleted")
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
@@ -99,9 +107,14 @@ func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
+	//
+	// 2. Control-loop: Status to Unknown
+	//
 	// Let's just set the status as Unknown when no status are available
 	if zookeeper.Status.Conditions == nil || len(zookeeper.Status.Conditions) == 0 {
-		meta.SetStatusCondition(&zookeeper.Status.Conditions, metav1.Condition{Type: typeAvailableZookeeper, Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reconciliation"})
+		meta.SetStatusCondition(&zookeeper.Status.Conditions, metav1.Condition{Type: typeAvailableZookeeper,
+			Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reconciliation"})
+
 		if err = r.Status().Update(ctx, zookeeper); err != nil {
 			log.Error(err, "Failed to update Zookeeper status")
 			return ctrl.Result{}, err
@@ -118,8 +131,10 @@ func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	// Let's add a finalizer. Then, we can define some operations which should
-	// occurs before the custom resource to be deleted.
+	//
+	// 3. Control-loop: Let's add a finalizer
+	//
+	// Then, we can define some operations which should occurs before the custom resource to be deleted.
 	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers
 	if !controllerutil.ContainsFinalizer(zookeeper, zookeeperFinalizer) {
 		log.Info("Adding Finalizer for Zookeeper")
@@ -134,6 +149,9 @@ func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
+	//
+	// 4. Control-loop: Instance marked for deletion
+	//
 	// Check if the Zookeeper instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set.
 	isZookeeperMarkedToBeDeleted := zookeeper.GetDeletionTimestamp() != nil
@@ -191,19 +209,28 @@ func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	// Check if the deployment already exists, if not create a new one
-	found := &appsv1.Deployment{}
-	err = r.Get(ctx, types.NamespacedName{Name: zookeeper.Name, Namespace: zookeeper.Namespace}, found)
+	//
+	// 5. Control-loop: Let's deploy/ensure our managed resources for Zookeeper
+	// - ConfigMap,
+	// - PodDisruptionBudget,
+	// - Service Headless,
+	// - Service ClusterIP,
+	// - StateFulSet
+
+	// ConfigMap: Check if the cm already exists, if not create a new one
+	configMapFound := &corev1.ConfigMap{}
+	err = r.Get(ctx, types.NamespacedName{Name: "zk-config", Namespace: zookeeper.Namespace}, configMapFound)
 	if err != nil && apierrors.IsNotFound(err) {
-		// Define a new deployment
-		dep, err := r.deploymentForZookeeper(zookeeper)
+		// Define the default ConfigMap
+		cm, err := r.defaultConfigMapForZookeeper(zookeeper)
 		if err != nil {
-			log.Error(err, "Failed to define new Deployment resource for Zookeeper")
+			log.Error(err, "Failed to define new ConfigMap resource for Zookeeper")
 
 			// The following implementation will update the status
 			meta.SetStatusCondition(&zookeeper.Status.Conditions, metav1.Condition{Type: typeAvailableZookeeper,
 				Status: metav1.ConditionFalse, Reason: "Reconciling",
-				Message: fmt.Sprintf("Failed to create Deployment for the custom resource (%s): (%s)", zookeeper.Name, err)})
+				Message: fmt.Sprintf("Failed to create ConfigMap for the custom resource (%s): (%s)",
+					zookeeper.Name, err)})
 
 			if err := r.Status().Update(ctx, zookeeper); err != nil {
 				log.Error(err, "Failed to update Zookeeper status")
@@ -213,24 +240,199 @@ func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, err
 		}
 
-		log.Info("Creating a new Deployment",
-			"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-		if err = r.Create(ctx, dep); err != nil {
-			log.Error(err, "Failed to create new Deployment",
-				"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
+		log.Info("Creating a new ConfigMap",
+			"ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
+
+		if err = r.Create(ctx, cm); err != nil {
+			log.Error(err, "Failed to create new ConfigMap",
+				"ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
 			return ctrl.Result{}, err
 		}
 
-		// Deployment created successfully
+		// ConfigMap created successfully at this point.
 		// We will requeue the reconciliation so that we can ensure the state
 		// and move forward for the next operations
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
+		//return ctrl.Result{RequeueAfter: time.Minute}, nil
+
 	} else if err != nil {
-		log.Error(err, "Failed to get Deployment")
+		log.Error(err, "Failed to get ConfigMap")
 		// Let's return the error for the reconciliation be re-trigged again
 		return ctrl.Result{}, err
 	}
 
+	// PodDisruptionBudget: Check if the pbd already exists, if not create a new one
+	pdbFound := &v1.PodDisruptionBudget{}
+	err = r.Get(ctx, types.NamespacedName{Name: "zk-pdb", Namespace: zookeeper.Namespace}, pdbFound)
+	if err != nil && apierrors.IsNotFound(err) {
+		// Define the pdb resource
+		pdb, err := r.pdbForZookeeper(zookeeper)
+		if err != nil {
+			log.Error(err, "Failed to define new PodDisruptionBudget resource for Zookeeper")
+
+			// The following implementation will update the status
+			meta.SetStatusCondition(&zookeeper.Status.Conditions, metav1.Condition{Type: typeAvailableZookeeper,
+				Status: metav1.ConditionFalse, Reason: "Reconciling",
+				Message: fmt.Sprintf("Failed to create PodDisruptionBudget for the custom resource (%s): (%s)",
+					zookeeper.Name, err)})
+
+			if err := r.Status().Update(ctx, zookeeper); err != nil {
+				log.Error(err, "Failed to update Zookeeper status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Creating a new PodDisruptionBudget",
+			"PodDisruptionBudget.Namespace", pdb.Namespace, "PodDisruptionBudget.Name", pdb.Name)
+
+		if err = r.Create(ctx, pdb); err != nil {
+			log.Error(err, "Failed to create new PodDisruptionBudget",
+				"PodDisruptionBudget.Namespace", pdb.Namespace, "PodDisruptionBudget.Name", pdb.Name)
+			return ctrl.Result{}, err
+		}
+
+		// PodDisruptionBudget created successfully at this point.
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		//return ctrl.Result{RequeueAfter: time.Minute}, nil
+
+	} else if err != nil {
+		log.Error(err, "Failed to get PodDisruptionBudget")
+		// Let's return the error for the reconciliation be re-trigged again
+		return ctrl.Result{}, err
+	}
+
+	// Service Headless: Check if the headless svc already exists, if not create a new one
+	serviceHeadlessFound := &corev1.Service{}
+	err = r.Get(ctx, types.NamespacedName{Name: "zk-hs", Namespace: zookeeper.Namespace}, serviceHeadlessFound)
+	if err != nil && apierrors.IsNotFound(err) {
+		// Define the pdb resource
+		hsvc, err := r.serviceHeadlessForZookeeper(zookeeper)
+		if err != nil {
+			log.Error(err, "Failed to define new Headless Service resource for Zookeeper")
+
+			// The following implementation will update the status
+			meta.SetStatusCondition(&zookeeper.Status.Conditions, metav1.Condition{Type: typeAvailableZookeeper,
+				Status: metav1.ConditionFalse, Reason: "Reconciling",
+				Message: fmt.Sprintf("Failed to create Headless Service for the custom resource (%s): (%s)",
+					zookeeper.Name, err)})
+
+			if err := r.Status().Update(ctx, zookeeper); err != nil {
+				log.Error(err, "Failed to update Zookeeper status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Creating a new Headless Service",
+			"Service.Namespace", hsvc.Namespace, "Service.Name", hsvc.Name)
+
+		if err = r.Create(ctx, hsvc); err != nil {
+			log.Error(err, "Failed to create new Headless Service",
+				"Service.Namespace", hsvc.Namespace, "Service.Name", hsvc.Name)
+			return ctrl.Result{}, err
+		}
+
+		// Service created successfully at this point.
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		//return ctrl.Result{RequeueAfter: time.Minute}, nil
+
+	} else if err != nil {
+		log.Error(err, "Failed to get Headless Service")
+		// Let's return the error for the reconciliation be re-trigged again
+		return ctrl.Result{}, err
+	}
+
+	// Service: Check if the headless svc already exists, if not create a new one
+	serviceFound := &corev1.Service{}
+	err = r.Get(ctx, types.NamespacedName{Name: "zk-cs", Namespace: zookeeper.Namespace}, serviceFound)
+	if err != nil && apierrors.IsNotFound(err) {
+		// Define the pdb resource
+		svc, err := r.serviceForZookeeper(zookeeper)
+		if err != nil {
+			log.Error(err, "Failed to define new Service resource for Zookeeper")
+
+			// The following implementation will update the status
+			meta.SetStatusCondition(&zookeeper.Status.Conditions, metav1.Condition{Type: typeAvailableZookeeper,
+				Status: metav1.ConditionFalse, Reason: "Reconciling",
+				Message: fmt.Sprintf("Failed to create Service for the custom resource (%s): (%s)",
+					zookeeper.Name, err)})
+
+			if err := r.Status().Update(ctx, zookeeper); err != nil {
+				log.Error(err, "Failed to update Zookeeper status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Creating a new Service",
+			"Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
+
+		if err = r.Create(ctx, svc); err != nil {
+			log.Error(err, "Failed to create new Service",
+				"Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
+			return ctrl.Result{}, err
+		}
+
+		// Service created successfully at this point.
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		//return ctrl.Result{RequeueAfter: time.Minute}, nil
+
+	} else if err != nil {
+		log.Error(err, "Failed to get Headless Service")
+		// Let's return the error for the reconciliation be re-trigged again
+		return ctrl.Result{}, err
+	}
+
+	// StateFulSet: Check if the sts already exists, if not create a new one
+	found := &appsv1.StatefulSet{}
+	err = r.Get(ctx, types.NamespacedName{Name: zookeeper.Name, Namespace: zookeeper.Namespace}, found)
+	if err != nil && apierrors.IsNotFound(err) {
+		// Define a new sts
+		dep, err := r.stateFulSetForZookeeper(zookeeper)
+		if err != nil {
+			log.Error(err, "Failed to define new StateFulSet resource for Zookeeper")
+
+			// The following implementation will update the status
+			meta.SetStatusCondition(&zookeeper.Status.Conditions, metav1.Condition{Type: typeAvailableZookeeper,
+				Status: metav1.ConditionFalse, Reason: "Reconciling",
+				Message: fmt.Sprintf("Failed to create StatefulSet for the custom resource (%s): (%s)", zookeeper.Name, err)})
+
+			if err := r.Status().Update(ctx, zookeeper); err != nil {
+				log.Error(err, "Failed to update Zookeeper status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Creating a new StateFulSet",
+			"StatefulSet.Namespace", dep.Namespace, "StatefulSet.Name", dep.Name)
+
+		if err = r.Create(ctx, dep); err != nil {
+			log.Error(err, "Failed to create new StatefulSet",
+				"StatefulSet.Namespace", dep.Namespace, "StatefulSet.Name", dep.Name)
+			return ctrl.Result{}, err
+		}
+
+		// StatefulSet created successfully at this point.
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	} else if err != nil {
+		log.Error(err, "Failed to get StatefulSet")
+		// Let's return the error for the reconciliation be re-trigged again
+		return ctrl.Result{}, err
+	}
+
+	//
+	// 6. Control-loop: Check the number of replicas
+	//
 	// The CRD API is defining that the Zookeeper type, have a ZookeeperSpec.Size field
 	// to set the quantity of Deployment instances is the desired state on the cluster.
 	// Therefore, the following code will ensure the Deployment size is the same as defined
@@ -239,8 +441,8 @@ func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if *found.Spec.Replicas != size {
 		found.Spec.Replicas = &size
 		if err = r.Update(ctx, found); err != nil {
-			log.Error(err, "Failed to update Deployment",
-				"Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
+			log.Error(err, "Failed to update StatefulSet",
+				"StatefulSet.Namespace", found.Namespace, "StatefulSet.Name", found.Name)
 
 			// Re-fetch the zookeeper Custom Resource before update the status
 			// so that we have the latest state of the resource on the cluster and we will avoid
@@ -270,10 +472,13 @@ func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{Requeue: true}, nil
 	}
 
+	//
+	// 7. Control-loop: Let's update the status
+	//
 	// The following implementation will update the status
 	meta.SetStatusCondition(&zookeeper.Status.Conditions, metav1.Condition{Type: typeAvailableZookeeper,
 		Status: metav1.ConditionTrue, Reason: "Reconciling",
-		Message: fmt.Sprintf("Deployment for custom resource (%s) with %d replicas created successfully", zookeeper.Name, size)})
+		Message: fmt.Sprintf("StatefulSet for custom resource (%s) with %d replicas created successfully", zookeeper.Name, size)})
 
 	if err := r.Status().Update(ctx, zookeeper); err != nil {
 		log.Error(err, "Failed to update Zookeeper status")
@@ -281,7 +486,7 @@ func (r *ZookeeperReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	return ctrl.Result{}, nil
-}
+} // end control-loop function
 
 // finalizeZookeeper will perform the required operations before delete the CR.
 func (r *ZookeeperReconciler) doFinalizerOperationsForZookeeper(cr *bigdatav1alpha1.Zookeeper) {
@@ -303,9 +508,150 @@ func (r *ZookeeperReconciler) doFinalizerOperationsForZookeeper(cr *bigdatav1alp
 			cr.Namespace))
 }
 
-// deploymentForZookeeper returns a Zookeeper Deployment object
-func (r *ZookeeperReconciler) deploymentForZookeeper(
-	zookeeper *bigdatav1alpha1.Zookeeper) (*appsv1.Deployment, error) {
+func (r *ZookeeperReconciler) defaultConfigMapForZookeeper(
+	v *bigdatav1alpha1.Zookeeper) (*corev1.ConfigMap, error) {
+
+	configMapData := make(map[string]string, 0)
+	zkEnv := `
+    export ZOOKEEPER__zoocfg__tickTime="2000"
+    export ZOOKEEPER__zoocfg__dataDir="/var/lib/zookeeper/data"
+    export ZOOKEEPER__zoocfg__dataLogDir="/var/lib/zookeeper/data/log"
+    export ZOOKEEPER__zoocfg__confDir="/opt/zookeeper/conf"
+    export ZOOKEEPER__zoocfg__clientPort="2181"
+    export ZOOKEEPER__zoocfg__serverPort="2888"
+    export ZOOKEEPER__zoocfg__electionPort="3888"
+    export ZOOKEEPER__zoocfg__initLimit="10"
+    export ZOOKEEPER__zoocfg__syncLimit="5"
+    export ZOOKEEPER__zoocfg__maxClientCnxns="60"
+    export ZOOKEEPER__zoocfg__purgeInterval="12"
+    export ZOOKEEPER__zoocfg__adminServerPort="8080"
+    export ZOOKEEPER__zoocfg__adminEnableServer="false"
+    export ZOOKEEPER__zoocfg__maxSessionTimeout="40000"
+    export ZOOKEEPER__zoocfg__minSessionTimeout="4000"
+    export ZOOKEEPER__zoocfg__logLevel="INFO"
+    export ZOOKEEPER__zoocfg__server_1="zk-0.zk-hs.default.svc.cluster.local:2888:3888"
+    export ZOOKEEPER__zoocfg__server_2="zk-1.zk-hs.default.svc.cluster.local:2888:3888"
+    export ZOOKEEPER__zoocfg__server_3="zk-2.zk-hs.default.svc.cluster.local:2888:3888"
+    export ZOOKEEPER__zoocfg__4lw_commands_whitelist="*"
+    export ZOOKEEPER__zoocfg__metricsProvider_className="org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider"
+    export ZOOKEEPER__zoocfg__metricsProvider_httpPort="7001"
+    export ZOOKEEPER__zoojavacfg__ZOO_LOG_DIR="/var/log/zookeeper"
+    export ZOOKEEPER__zoojavacfg__JVMFLAGS="-Xmx512M -Xms512M "
+    export ZOOKEEPER__zoolog4jcfg__zookeeper_root_logger="CONSOLE"
+    export ZOOKEEPER__zoolog4jcfg__log4j_rootLogger="\${zookeeper.root.logger}"
+    export ZOOKEEPER__zoolog4jcfg__zookeeper_console_threshold="INFO"
+    export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE="org.apache.log4j.ConsoleAppender"
+    export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE_Threshold="\${zookeeper.console.threshold}"
+    export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE_layout="org.apache.log4j.PatternLayout"
+    export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE_layout_ConversionPattern="%d{ISO8601} [myid:%X{myid}] - %-5p [%t:%C{1}@%L] - %m%n"
+	`
+	configMapData["zk.env"] = zkEnv
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "zk-config",
+			Namespace: v.Namespace,
+		},
+		Data: configMapData,
+	}
+
+	if err := ctrl.SetControllerReference(v, configMap, r.Scheme); err != nil {
+		return nil, err
+	}
+
+	return configMap, nil
+}
+
+func (r *ZookeeperReconciler) pdbForZookeeper(
+	v *bigdatav1alpha1.Zookeeper) (*v1.PodDisruptionBudget, error) {
+
+	labels := labels(v, "zk")
+	maxUnavailable := intstr.FromInt(1)
+	pdb := &v1.PodDisruptionBudget{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "zk-pdb",
+			Labels:    labels,
+			Namespace: v.Namespace,
+		},
+		Spec: v1.PodDisruptionBudgetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			MaxUnavailable: &maxUnavailable,
+		},
+	}
+
+	if err := ctrl.SetControllerReference(v, pdb, r.Scheme); err != nil {
+		return nil, err
+	}
+
+	return pdb, nil
+}
+
+func (r *ZookeeperReconciler) serviceHeadlessForZookeeper(
+	v *bigdatav1alpha1.Zookeeper) (*corev1.Service, error) {
+
+	labels := labels(v, "zk")
+	s := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "zk-hs",
+			Namespace: v.Namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{{
+				Name: "server",
+				Port: 2888,
+			},
+				{
+					Name: "leader-election",
+					Port: 3888,
+				},
+				{
+					Name: "metrics-port",
+					Port: 7001,
+				}},
+			Type:      corev1.ServiceTypeClusterIP,
+			ClusterIP: "None",
+		},
+	}
+
+	if err := ctrl.SetControllerReference(v, s, r.Scheme); err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+func (r *ZookeeperReconciler) serviceForZookeeper(
+	v *bigdatav1alpha1.Zookeeper) (*corev1.Service, error) {
+
+	labels := labels(v, "zk")
+	s := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "zk-cs",
+			Namespace: v.Namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{{
+				Name: "client",
+				Port: 2181,
+			}},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}
+
+	if err := ctrl.SetControllerReference(v, s, r.Scheme); err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+// stateFulSetForZookeeper returns a Zookeeper StateFulSet object
+func (r *ZookeeperReconciler) stateFulSetForZookeeper(
+	zookeeper *bigdatav1alpha1.Zookeeper) (*appsv1.StatefulSet, error) {
+
 	ls := labelsForZookeeper(zookeeper.Name)
 	replicas := zookeeper.Spec.Size
 
@@ -315,15 +661,21 @@ func (r *ZookeeperReconciler) deploymentForZookeeper(
 		return nil, err
 	}
 
-	dep := &appsv1.Deployment{
+	fastdisks := "fast-disks"
+
+	dep := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      zookeeper.Name,
 			Namespace: zookeeper.Namespace,
 		},
-		Spec: appsv1.DeploymentSpec{
+		Spec: appsv1.StatefulSetSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: ls,
+			},
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+				Type:          "RollingUpdate",
+				RollingUpdate: nil,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
@@ -348,17 +700,69 @@ func (r *ZookeeperReconciler) deploymentForZookeeper(
 						SecurityContext: &corev1.SecurityContext{
 							RunAsNonRoot:             &[]bool{true}[0],
 							RunAsUser:                &[]int64{1000}[0],
-							AllowPrivilegeEscalation: &[]bool{false}[0],
+							RunAsGroup:               &[]int64{1000}[0],
+							AllowPrivilegeEscalation: &[]bool{true}[0],
 							Capabilities: &corev1.Capabilities{
 								Drop: []corev1.Capability{
 									"ALL",
 								},
 							},
 						},
-						Command: []string{"memcached", "-m=64", "modern", "-v"},
+						Command: []string{"sh", "-c", "start-zookeeper", "--servers=3"},
+						Ports: []corev1.ContainerPort{
+							{
+								ContainerPort: 2181,
+								Name:          "client",
+							},
+							{
+								ContainerPort: 2888,
+								Name:          "server",
+							},
+							{
+								ContainerPort: 3888,
+								Name:          "leader-election",
+							},
+							{
+								ContainerPort: 7001,
+								Name:          "metrics-port",
+							}},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      "datadir",
+								MountPath: "/var/lib/zookeeper",
+							},
+							{
+								Name:      "zk-config-volume",
+								MountPath: "/etc/environments",
+							},
+						},
 					}},
+					Volumes: []corev1.Volume{
+						{
+							Name: "zk-config-volume",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "zk-config",
+									},
+								},
+							},
+						},
+					},
 				},
 			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
+				ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource.MustParse("150Mi"),
+						},
+					},
+					StorageClassName: &fastdisks,
+				},
+			}},
 		},
 	}
 
@@ -397,12 +801,19 @@ func imageForZookeeper() (string, error) {
 	return image, nil
 }
 
+func labels(v *bigdatav1alpha1.Zookeeper, l string) map[string]string {
+	return map[string]string{
+		"app":          l,
+		"zookeeper_cr": v.Name,
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 // Note that the Deployment will be also watched in order to ensure its
 // desirable state on the cluster
 func (r *ZookeeperReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&bigdatav1alpha1.Zookeeper{}).
-		Owns(&appsv1.Deployment{}).
+		Owns(&appsv1.StatefulSet{}).
 		Complete(r)
 }
