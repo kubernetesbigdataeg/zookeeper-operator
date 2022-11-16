@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -511,8 +512,12 @@ func (r *ZookeeperReconciler) doFinalizerOperationsForZookeeper(cr *bigdatav1alp
 func (r *ZookeeperReconciler) defaultConfigMapForZookeeper(
 	v *bigdatav1alpha1.Zookeeper) (*corev1.ConfigMap, error) {
 
+	replicas := int(v.Spec.Size)
+	namespace := v.Namespace
+	hostname := v.Name
+
 	configMapData := make(map[string]string, 0)
-	zkEnv := `
+	zkEnvPartial := `
     export ZOOKEEPER__zoocfg__tickTime="2000"
     export ZOOKEEPER__zoocfg__dataDir="/var/lib/zookeeper/data"
     export ZOOKEEPER__zoocfg__dataLogDir="/var/lib/zookeeper/data/log"
@@ -529,9 +534,6 @@ func (r *ZookeeperReconciler) defaultConfigMapForZookeeper(
     export ZOOKEEPER__zoocfg__maxSessionTimeout="40000"
     export ZOOKEEPER__zoocfg__minSessionTimeout="4000"
     export ZOOKEEPER__zoocfg__logLevel="INFO"
-    export ZOOKEEPER__zoocfg__server_1="zk-0.zk-hs.default.svc.cluster.local:2888:3888"
-    export ZOOKEEPER__zoocfg__server_2="zk-1.zk-hs.default.svc.cluster.local:2888:3888"
-    export ZOOKEEPER__zoocfg__server_3="zk-2.zk-hs.default.svc.cluster.local:2888:3888"
     export ZOOKEEPER__zoocfg__4lw_commands_whitelist="*"
     export ZOOKEEPER__zoocfg__metricsProvider_className="org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider"
     export ZOOKEEPER__zoocfg__metricsProvider_httpPort="7001"
@@ -545,6 +547,22 @@ func (r *ZookeeperReconciler) defaultConfigMapForZookeeper(
     export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE_layout="org.apache.log4j.PatternLayout"
     export ZOOKEEPER__zoolog4jcfg__log4j_appender_CONSOLE_layout_ConversionPattern="%d{ISO8601} [myid:%X{myid}] - %-5p [%t:%C{1}@%L] - %m%n"
 	`
+
+	zkServers := ``
+	for i := 0; i < replicas; i++ {
+		literal := `export ZOOKEEPER__zoocfg__server_` +
+			strconv.Itoa(i+1) +
+			`=` + `"` +
+			hostname + `-` +
+			strconv.Itoa(i) + `.zk-hs.` +
+			namespace +
+			`.svc.cluster.local:2888:3888` + `"`
+
+		zkServers = zkServers + "\n" + literal
+	}
+
+	zkEnv := zkEnvPartial + zkServers
+
 	configMapData["zk.env"] = zkEnv
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -569,8 +587,8 @@ func (r *ZookeeperReconciler) pdbForZookeeper(
 	pdb := &v1.PodDisruptionBudget{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "zk-pdb",
-			Labels:    labels,
 			Namespace: v.Namespace,
+			Labels:    labels,
 		},
 		Spec: v1.PodDisruptionBudgetSpec{
 			Selector: &metav1.LabelSelector{
@@ -595,6 +613,7 @@ func (r *ZookeeperReconciler) serviceHeadlessForZookeeper(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "zk-hs",
 			Namespace: v.Namespace,
+			Labels:    labels,
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: labels,
@@ -630,6 +649,7 @@ func (r *ZookeeperReconciler) serviceForZookeeper(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "zk-cs",
 			Namespace: v.Namespace,
+			Labels:    labels,
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: labels,
@@ -653,6 +673,8 @@ func (r *ZookeeperReconciler) stateFulSetForZookeeper(
 	zookeeper *bigdatav1alpha1.Zookeeper) (*appsv1.StatefulSet, error) {
 
 	ls := labelsForZookeeper(zookeeper.Name)
+	labels := labels(zookeeper, "zk")
+
 	replicas := zookeeper.Spec.Size
 
 	// Get the Operand image
@@ -669,7 +691,8 @@ func (r *ZookeeperReconciler) stateFulSetForZookeeper(
 			Namespace: zookeeper.Namespace,
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: &replicas,
+			ServiceName: "zk-hs",
+			Replicas:    &replicas,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: ls,
 			},
@@ -682,33 +705,11 @@ func (r *ZookeeperReconciler) stateFulSetForZookeeper(
 					Labels: ls,
 				},
 				Spec: corev1.PodSpec{
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: &[]bool{true}[0],
-						// IMPORTANT: seccomProfile was introduced with Kubernetes 1.19
-						// If you are looking for to produce solutions to be supported
-						// on lower versions you must remove this option.
-						SeccompProfile: &corev1.SeccompProfile{
-							Type: corev1.SeccompProfileTypeRuntimeDefault,
-						},
-					},
 					Containers: []corev1.Container{{
 						Image:           image,
 						Name:            "zookeeper",
 						ImagePullPolicy: corev1.PullIfNotPresent,
-						// Ensure restrictive context for the container
-						// More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
-						SecurityContext: &corev1.SecurityContext{
-							RunAsNonRoot:             &[]bool{true}[0],
-							RunAsUser:                &[]int64{1000}[0],
-							RunAsGroup:               &[]int64{1000}[0],
-							AllowPrivilegeEscalation: &[]bool{true}[0],
-							Capabilities: &corev1.Capabilities{
-								Drop: []corev1.Capability{
-									"ALL",
-								},
-							},
-						},
-						Command: []string{"sh", "-c", "start-zookeeper", "--servers=3"},
+						Command:         []string{"sh", "-c", "start-zookeeper", "--servers=3"},
 						Ports: []corev1.ContainerPort{
 							{
 								ContainerPort: 2181,
@@ -752,7 +753,10 @@ func (r *ZookeeperReconciler) stateFulSetForZookeeper(
 				},
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
-				ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "datadir",
+					Labels: labels,
+				},
 				Spec: corev1.PersistentVolumeClaimSpec{
 					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 					Resources: corev1.ResourceRequirements{
@@ -787,6 +791,7 @@ func labelsForZookeeper(name string) map[string]string {
 		"app.kubernetes.io/version":    imageTag,
 		"app.kubernetes.io/part-of":    "zookeeper-operator",
 		"app.kubernetes.io/created-by": "controller-manager",
+		"app":                          "zk",
 	}
 }
 
@@ -803,8 +808,7 @@ func imageForZookeeper() (string, error) {
 
 func labels(v *bigdatav1alpha1.Zookeeper, l string) map[string]string {
 	return map[string]string{
-		"app":          l,
-		"zookeeper_cr": v.Name,
+		"app": l,
 	}
 }
 
