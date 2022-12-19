@@ -19,14 +19,15 @@ package controllers
 import (
 	"context"
 	"fmt"
-	v1 "k8s.io/api/policy/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"strconv"
 	"strings"
 	"time"
+
+	v1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	bigdatav1alpha1 "github.com/kubernetesbigdataeg/zookeeper-operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -72,7 +73,9 @@ type ZookeeperReconciler struct {
 //+kubebuilder:rbac:groups=bigdata.kubernetesbigdataeg.org,resources=zookeepers/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=bigdata.kubernetesbigdataeg.org,resources=zookeepers/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=configmaps;services,verbs=get;list;create;watch
+//+kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;create;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;configmaps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop, which aims to
