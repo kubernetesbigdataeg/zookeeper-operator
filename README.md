@@ -91,6 +91,10 @@ make manifests
 
 More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
 
+### Image variable
+
+export ZOOKEEPER_IMAGE=kubernetesbigdataeg/zookeeper:3.7.0-1
+
 ## License
 
 Copyright 2022.

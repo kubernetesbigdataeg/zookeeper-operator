@@ -9,6 +9,8 @@ rules:
   - apps
   resources:
   - deployments
+  - statefulsets
+  - configmaps
   verbs:
   - create
   - delete
@@ -46,6 +48,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
   - events
   verbs:
   - create
@@ -54,7 +57,19 @@ rules:
   - ""
   resources:
   - pods
+  - configmaps
+  - services
   verbs:
   - get
   - list
   - watch
+  - create
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - list
+  - get
+  - watch
+  - create
