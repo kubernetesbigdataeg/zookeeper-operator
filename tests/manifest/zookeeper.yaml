@@ -97,7 +97,7 @@ spec:
             timeoutSeconds: 25
           volumeMounts:
             - name: datadir
-              mountPath: /data
+              mountPath: /var/zookeeper
             - name: zookeeper-config
               mountPath: /etc/environments  
       securityContext:
