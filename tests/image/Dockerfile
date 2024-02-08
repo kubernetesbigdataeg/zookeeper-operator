@@ -3,10 +3,9 @@ FROM eclipse-temurin:11-jre
 ENV CLIENT_PORT=2181 \
     SERVER_PORT=2888 \
     ELECTION_PORT=3888 \
-    ZOO_CONF_DIR=/conf \
-    ZOO_DATA_DIR=/data \
-    ZOO_DATA_LOG_DIR=/datalog \
-    ZOO_LOG_DIR=/logs \
+    ZOO_CONF_DIR=/etc/zookeeper/conf \
+    ZOO_DATA_DIR=/var/zookeeper \
+    ZOO_LOG_DIR=/var/log/zookeeper \
     ZOO_TICK_TIME=2000 \
     ZOO_INIT_LIMIT=5 \
     ZOO_SYNC_LIMIT=2 \
@@ -21,8 +20,8 @@ ENV CLIENT_PORT=2181 \
 RUN set -eux; \
     groupadd -r zookeeper --gid=1000; \
     useradd -r -g zookeeper --uid=1000 zookeeper; \
-    mkdir -p "$ZOO_DATA_LOG_DIR" "$ZOO_DATA_DIR" "$ZOO_CONF_DIR" "$ZOO_LOG_DIR"; \
-    chown zookeeper:zookeeper "$ZOO_DATA_LOG_DIR" "$ZOO_DATA_DIR" "$ZOO_CONF_DIR" "$ZOO_LOG_DIR"
+    mkdir -p "$ZOO_DATA_DIR" "$ZOO_CONF_DIR" "$ZOO_LOG_DIR"; \
+    chown zookeeper:zookeeper "$ZOO_DATA_DIR" "$ZOO_CONF_DIR" "$ZOO_LOG_DIR"
 
 # Install required packges
 RUN set -eux; \
@@ -79,7 +78,7 @@ COPY scripts/zookeeper-ready /bin/zookeeper-ready
 RUN chmod 777 /bin/zookeeper-ready
 
 WORKDIR $DISTRO_NAME
-VOLUME ["$ZOO_DATA_DIR", "$ZOO_DATA_LOG_DIR", "$ZOO_LOG_DIR"]
+VOLUME ["$ZOO_DATA_DIR", "$ZOO_LOG_DIR"]
 
 EXPOSE 2181 2888 3888 8080
 
